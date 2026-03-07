@@ -178,7 +178,7 @@ _apop_assume_role() {
 
   local session_name
   if [[ -n "$profile_name" ]]; then
-    session_name="apop-$profile_name"
+    session_name="$profile_name-session"
   else
     session_name="apop-$$"
   fi
@@ -255,7 +255,7 @@ _apop_assume_role() {
   fi
 
   # Show caller identity
-  AWS_PAGER="" aws sts get-caller-identity --output table >&2
+  AWS_PAGER="" aws sts get-caller-identity --output json >&2
 }
 
 # --- Helpers ---
