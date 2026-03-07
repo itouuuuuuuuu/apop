@@ -254,8 +254,8 @@ _apop_assume_role() {
     echo "Successfully assumed role: ${role_arn##*/}" >&2
   fi
 
-  # Show caller identity (non-blocking)
-  AWS_PAGER="" aws sts get-caller-identity --output table >&2 &
+  # Show caller identity
+  AWS_PAGER="" aws sts get-caller-identity --output table >&2
 }
 
 # --- Helpers ---
