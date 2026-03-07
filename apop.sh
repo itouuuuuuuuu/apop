@@ -117,8 +117,8 @@ _apop_assume_profile() {
   local profile_name="$1"
 
   local aws_config="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
-  local role_arn
-  role_arn=$(_apop_get_profile_value "$aws_config" "$profile_name" "role_arn")
+  local role_arn mfa_serial_from_config
+  eval "$(_apop_get_profile_values "$aws_config" "$profile_name" role_arn mfa_serial)"
 
   if [[ -z "$role_arn" ]]; then
     echo "Error: profile '$profile_name' has no role_arn configured" >&2
@@ -126,16 +126,17 @@ _apop_assume_profile() {
     return 1
   fi
 
-  _apop_assume_role "$role_arn" "$profile_name"
+  _apop_assume_role "$role_arn" "$profile_name" "$mfa_serial"
 }
 
 _apop_assume_role() {
-  local role_arn="$1" profile_name="$2"
+  local role_arn="$1" profile_name="$2" config_mfa_serial="${3:-}"
 
   # Check dependencies
-  local cmd; for cmd in op aws jq; do
-    if ! command -v "$cmd" &>/dev/null; then
-      echo "Error: $cmd is not installed" >&2
+  local cmd; for cmd in op:1password-cli aws:awscli jq:jq; do
+    if ! command -v "${cmd%%:*}" &>/dev/null; then
+      echo "Error: ${cmd%%:*} is not installed" >&2
+      echo "Install it: brew install ${cmd##*:}" >&2
       return 1
     fi
   done
@@ -170,10 +171,9 @@ _apop_assume_role() {
     return 1
   fi
 
-  # Fallback: get mfa_serial from AWS config if not in 1Password
-  if [[ -z "$mfa_serial" && -n "$profile_name" ]]; then
-    local aws_config="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
-    mfa_serial=$(_apop_get_profile_value "$aws_config" "$profile_name" "mfa_serial")
+  # Fallback: use mfa_serial from AWS config if not in 1Password
+  if [[ -z "$mfa_serial" ]]; then
+    mfa_serial="$config_mfa_serial"
   fi
 
   local session_name
@@ -254,8 +254,8 @@ _apop_assume_role() {
     echo "Successfully assumed role: ${role_arn##*/}" >&2
   fi
 
-  # Show caller identity
-  AWS_PAGER="" aws sts get-caller-identity --output table >&2
+  # Show caller identity (non-blocking)
+  AWS_PAGER="" aws sts get-caller-identity --output table >&2 &
 }
 
 # --- Helpers ---
@@ -303,6 +303,25 @@ _apop_get_profile_value() {
     /^\[profile / { current = $0; gsub(/\[profile |\]/, "", current) }
     current == profile && index($0, key "=") || current == profile && index($0, key " =") {
       sub(/^[^=]*=[[:space:]]*/, ""); print; exit
+    }
+  ' "$config_file"
+}
+
+_apop_get_profile_values() {
+  local config_file="$1" profile_name="$2"
+  shift 2
+  local keys="$*"
+  awk -v profile="$profile_name" -v keys="$keys" '
+    BEGIN { n = split(keys, ka, " ") }
+    /^\[profile / { current = $0; gsub(/\[profile |\]/, "", current) }
+    current == profile {
+      for (i = 1; i <= n; i++) {
+        k = ka[i]
+        if (index($0, k "=") || index($0, k " =")) {
+          val = $0; sub(/^[^=]*=[[:space:]]*/, "", val)
+          printf "%s='\''%s'\''\n", k, val
+        }
+      }
     }
   ' "$config_file"
 }
