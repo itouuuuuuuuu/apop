@@ -255,7 +255,7 @@ _apop_assume_role() {
   fi
 
   # Show caller identity
-  AWS_PAGER="" aws sts get-caller-identity --output json >&2
+  AWS_PAGER="" aws sts get-caller-identity --output table >&2
 }
 
 # --- Helpers ---
@@ -282,8 +282,8 @@ _apop_get_totp() {
 }
 
 _apop_call_sts() {
-  AWS_ACCESS_KEY_ID="$access_key_id" AWS_SECRET_ACCESS_KEY="$secret_access_key" \
-    AWS_SESSION_TOKEN="" AWS_SECURITY_TOKEN="" \
+  env -u AWS_SESSION_TOKEN -u AWS_SECURITY_TOKEN -u AWS_PROFILE -u AWS_DEFAULT_PROFILE \
+    AWS_ACCESS_KEY_ID="$access_key_id" AWS_SECRET_ACCESS_KEY="$secret_access_key" \
     aws "$@" 2>&1
 }
 
@@ -302,7 +302,7 @@ _apop_get_profile_value() {
   awk -v profile="$profile_name" -v key="$key" '
     /^\[profile / { current = $0; gsub(/\[profile |\]/, "", current) }
     current == profile && index($0, key "=") || current == profile && index($0, key " =") {
-      sub(/^[^=]*=[[:space:]]*/, ""); print; exit
+      sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit
     }
   ' "$config_file"
 }
@@ -318,7 +318,7 @@ _apop_get_profile_values() {
       for (i = 1; i <= n; i++) {
         k = ka[i]
         if (index($0, k "=") || index($0, k " =")) {
-          val = $0; sub(/^[^=]*=[[:space:]]*/, "", val)
+          val = $0; sub(/^[^=]*=[[:space:]]*/, "", val); sub(/[[:space:]]*$/, "", val)
           printf "%s='\''%s'\''\n", k, val
         }
       }
