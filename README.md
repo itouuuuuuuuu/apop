@@ -1,11 +1,13 @@
 # apop
 
-AWS Profile switcher with 1Password integration.
+AWS Profile switcher with 1Password integration for macOS.
 
 Switches AWS profiles using credentials stored in 1Password. No AWS secrets are stored locally.
 
 ## Prerequisites
 
+- macOS
+- [Homebrew](https://brew.sh/)
 - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
 - [AWS CLI](https://aws.amazon.com/cli/) (`aws`)
 - [jq](https://jqlang.github.io/jq/) (`jq`)
@@ -13,10 +15,31 @@ Switches AWS profiles using credentials stored in 1Password. No AWS secrets are 
 
 ## Installation
 
-Add the following to your `.zshrc`:
+### 1. Clone the repository
 
 ```bash
-source /path/to/apop.sh
+git clone https://github.com/itouuuuuuuuu/apop.git ~/.apop
+```
+
+### 2. Install dependencies
+
+```bash
+brew install awscli jq fzf
+brew install --cask 1password-cli
+```
+
+### 3. Add to your shell
+
+Add the following to your `~/.zshrc`:
+
+```bash
+source ~/.apop/apop.sh
+```
+
+Then reload your shell:
+
+```bash
+source ~/.zshrc
 ```
 
 ## Setup
