@@ -46,56 +46,7 @@ apop() {
     return 1
   fi
 
-  # Check dependencies
-  if ! command -v op &>/dev/null; then
-    echo "Error: 1Password CLI (op) is not installed" >&2
-    echo "Install it: brew install 1password-cli" >&2
-    return 1
-  fi
-  if ! command -v aws &>/dev/null; then
-    echo "Error: AWS CLI is not installed" >&2
-    echo "Install it: brew install awscli" >&2
-    return 1
-  fi
-  if ! command -v jq &>/dev/null; then
-    echo "Error: jq is not installed" >&2
-    echo "Install it: brew install jq" >&2
-    return 1
-  fi
-
-  # Get credentials from 1Password
-  local op_fields="${APOP_OP_FIELD_ACCESS_KEY_ID:-aws_access_key_id},${APOP_OP_FIELD_SECRET_ACCESS_KEY:-aws_secret_access_key},${APOP_OP_FIELD_MFA_SERIAL:-mfa_serial}"
-  local op_json
-  if ! op_json=$(OP_BIOMETRIC_UNLOCK_ENABLED=true op item get "$APOP_OP_ITEM_NAME" --fields "$op_fields" --reveal --format json 2>&1); then
-    echo "Error: failed to get credentials from 1Password" >&2
-    echo "$op_json" >&2
-    echo "Ensure 1Password app is running and CLI integration is enabled" >&2
-    return 1
-  fi
-  echo "Using credentials from 1Password" >&2
-
-  # Parse all credential fields in one jq call
-  local access_key_id secret_access_key mfa_serial
-  local field_ak="${APOP_OP_FIELD_ACCESS_KEY_ID:-aws_access_key_id}"
-  local field_sk="${APOP_OP_FIELD_SECRET_ACCESS_KEY:-aws_secret_access_key}"
-  local field_mfa="${APOP_OP_FIELD_MFA_SERIAL:-mfa_serial}"
-
-  eval "$(echo "$op_json" | jq -r --arg ak "$field_ak" --arg sk "$field_sk" --arg mfa "$field_mfa" '
-    reduce .[] as $f ({};
-      if $f.label == $ak then .ak = $f.value
-      elif $f.label == $sk then .sk = $f.value
-      elif $f.label == $mfa then .mfa = $f.value
-      else . end
-    ) | "access_key_id=\(.ak // "")\nsecret_access_key=\(.sk // "")\nmfa_serial=\(.mfa // "")"
-  ')"
-
-  if [[ -z "$access_key_id" || -z "$secret_access_key" ]]; then
-    echo "Error: AWS credentials not found in 1Password" >&2
-    echo "Verify field labels: op item get $APOP_OP_ITEM_NAME --format json" >&2
-    return 1
-  fi
-
-  # Determine role
+  # Determine role (credentials fetched lazily after profile selection)
   if [[ $# -gt 0 ]]; then
     if [[ "$1" =~ ^arn:aws:iam::[0-9]{12}:role/ ]]; then
       _apop_assume_role "$1" ""
@@ -175,16 +126,55 @@ _apop_assume_profile() {
     return 1
   fi
 
-  # Use profile's mfa_serial if not set in 1Password
-  if [[ -z "$mfa_serial" ]]; then
-    mfa_serial=$(_apop_get_profile_value "$aws_config" "$profile_name" "mfa_serial")
-  fi
-
   _apop_assume_role "$role_arn" "$profile_name"
 }
 
 _apop_assume_role() {
   local role_arn="$1" profile_name="$2"
+
+  # Check dependencies
+  local cmd; for cmd in op aws jq; do
+    if ! command -v "$cmd" &>/dev/null; then
+      echo "Error: $cmd is not installed" >&2
+      return 1
+    fi
+  done
+
+  # Get credentials from 1Password
+  local op_fields="${APOP_OP_FIELD_ACCESS_KEY_ID:-aws_access_key_id},${APOP_OP_FIELD_SECRET_ACCESS_KEY:-aws_secret_access_key},${APOP_OP_FIELD_MFA_SERIAL:-mfa_serial}"
+  local op_json
+  if ! op_json=$(OP_BIOMETRIC_UNLOCK_ENABLED=true op item get "$APOP_OP_ITEM_NAME" --fields "$op_fields" --reveal --format json 2>&1); then
+    echo "Error: failed to get credentials from 1Password" >&2
+    echo "$op_json" >&2
+    return 1
+  fi
+  echo "Using credentials from 1Password" >&2
+
+  # Parse all credential fields in one jq call
+  local access_key_id secret_access_key mfa_serial
+  local field_ak="${APOP_OP_FIELD_ACCESS_KEY_ID:-aws_access_key_id}"
+  local field_sk="${APOP_OP_FIELD_SECRET_ACCESS_KEY:-aws_secret_access_key}"
+  local field_mfa="${APOP_OP_FIELD_MFA_SERIAL:-mfa_serial}"
+
+  eval "$(echo "$op_json" | jq -r --arg ak "$field_ak" --arg sk "$field_sk" --arg mfa "$field_mfa" '
+    reduce .[] as $f ({};
+      if $f.label == $ak then .ak = $f.value
+      elif $f.label == $sk then .sk = $f.value
+      elif $f.label == $mfa then .mfa = $f.value
+      else . end
+    ) | "access_key_id=\(.ak // "")\nsecret_access_key=\(.sk // "")\nmfa_serial=\(.mfa // "")"
+  ')"
+
+  if [[ -z "$access_key_id" || -z "$secret_access_key" ]]; then
+    echo "Error: AWS credentials not found in 1Password" >&2
+    return 1
+  fi
+
+  # Fallback: get mfa_serial from AWS config if not in 1Password
+  if [[ -z "$mfa_serial" && -n "$profile_name" ]]; then
+    local aws_config="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
+    mfa_serial=$(_apop_get_profile_value "$aws_config" "$profile_name" "mfa_serial")
+  fi
 
   local session_name
   if [[ -n "$profile_name" ]]; then
