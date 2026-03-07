@@ -2,36 +2,32 @@
 
 AWS Profile switcher with 1Password integration.
 
-A CLI tool that switches AWS profiles using credentials stored in 1Password.
+Switches AWS profiles using credentials stored in 1Password. No AWS secrets are stored locally.
 
 ## Prerequisites
 
 - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
 - [AWS CLI](https://aws.amazon.com/cli/) (`aws`)
+- [jq](https://jqlang.github.io/jq/) (`jq`)
 - [fzf](https://github.com/junegunn/fzf) (optional, for interactive selection)
 
 ## Installation
 
-```bash
-go install github.com/itouuuuuuuuu/apop@latest
-```
-
-Or build from source:
+Add the following to your `.zshrc`:
 
 ```bash
-go build -o apop .
-sudo mv apop /usr/local/bin/
+source /path/to/apop.sh
 ```
 
-## Shell Integration
-
-Add the following to your `.zshrc` or `.bashrc`:
+## Setup
 
 ```bash
-eval "$(command apop init)"
-```
+# Generate a sample config
+apop init
 
-This registers `apop` as a shell function so that credentials obtained via AssumeRole are automatically exported into your current shell session.
+# Edit with your settings
+$EDITOR ~/.config/apop/config
+```
 
 ## Usage
 
@@ -48,34 +44,22 @@ apop arn:aws:iam::123456789012:role/MyRole
 
 ## Configuration
 
-`~/.config/apop/config.toml`:
+`~/.config/apop/config`:
 
-```toml
-op_item_name = "awsp"
-aws_region = "ap-northeast-1"
-credentials_file = "~/.apop-credentials"
-last_totp_file = "~/.apop-last-totp"
+```bash
+APOP_OP_ITEM_NAME="awsp"
+APOP_AWS_REGION="ap-northeast-1"
 
-[op_fields]
-access_key_id = "aws_access_key_id"
-secret_access_key = "aws_secret_access_key"
-mfa_serial = "mfa_serial"
+# 1Password field labels (defaults shown)
+# APOP_OP_FIELD_ACCESS_KEY_ID="aws_access_key_id"
+# APOP_OP_FIELD_SECRET_ACCESS_KEY="aws_secret_access_key"
+# APOP_OP_FIELD_MFA_SERIAL="mfa_serial"
 ```
-
-If the config file does not exist, the defaults shown above are used.
 
 ## How It Works
 
-1. Fetches AWS credentials (Access Key, Secret Key, MFA Serial) from 1Password in a single call
+1. Fetches AWS credentials (Access Key, Secret Key, MFA Serial) from 1Password
 2. Selects a profile (fzf / direct name / ARN)
-3. If MFA is required, automatically retrieves TOTP from 1Password (waits for the next code if already used)
+3. If MFA is required, retrieves TOTP from 1Password
 4. Calls `aws sts assume-role` to obtain temporary credentials
-5. Writes credentials to a file, which the shell function `source`s to export environment variables
-
-## Flags
-
-```
---config <path>    Config file path (default: ~/.config/apop/config.toml)
---version          Show version
---help             Show help
-```
+5. Exports credentials as environment variables in the current shell
