@@ -47,7 +47,7 @@ apop arn:aws:iam::123456789012:role/MyRole
 `~/.config/apop/config`:
 
 ```bash
-APOP_OP_ITEM_NAME="awsp"
+APOP_OP_ITEM_NAME="aws_profile"
 APOP_AWS_REGION="ap-northeast-1"
 
 # 1Password field labels (defaults shown)
