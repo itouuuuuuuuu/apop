@@ -73,6 +73,12 @@ apop -r arn:aws:iam::999999999999:role/CrossAccountRole
 
 # Role chaining + copy to clipboard
 apop -c -r arn:aws:iam::999999999999:role/CrossAccountRole
+
+# Show help
+apop --help
+
+# Show version
+apop --version
 ```
 
 ## Configuration
