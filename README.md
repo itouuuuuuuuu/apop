@@ -63,6 +63,10 @@ apop my-profile
 
 # Specify a Role ARN directly
 apop arn:aws:iam::123456789012:role/MyRole
+
+# Copy credentials to clipboard after assuming role
+apop -c
+apop -c my-profile
 ```
 
 ## Configuration

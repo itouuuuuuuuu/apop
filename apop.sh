@@ -7,6 +7,27 @@ APOP_VERSION="0.1.0"
 APOP_CONFIG="${APOP_CONFIG:-$HOME/.config/apop/config}"
 
 apop() {
+  # Parse options
+  local _apop_copy_to_clipboard=false
+  local args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      init|--version|--help|-h)
+        args+=("$1")
+        shift
+        ;;
+      -c)
+        _apop_copy_to_clipboard=true
+        shift
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+  set -- "${args[@]}"
+
   case "${1:-}" in
     init)
       _apop_init
@@ -60,7 +81,10 @@ apop() {
 
 _apop_usage() {
   cat >&2 <<EOF
-Usage: apop [profile-name | role-arn]
+Usage: apop [-c] [profile-name | role-arn]
+
+Options:
+  -c           Copy credentials to clipboard after assuming role
 
 Commands:
   init         Generate sample config file
@@ -71,6 +95,8 @@ Examples:
   apop                                          # Interactive selection with fzf
   apop my-profile                               # Direct profile switch
   apop arn:aws:iam::123456789012:role/MyRole     # Direct ARN assumption
+  apop -c                                       # Interactive + copy to clipboard
+  apop -c my-profile                            # Direct switch + copy to clipboard
 EOF
 }
 
@@ -252,6 +278,14 @@ _apop_assume_role() {
     echo "Successfully assumed role for profile: $profile_name" >&2
   else
     echo "Successfully assumed role: ${role_arn##*/}" >&2
+  fi
+
+  # Copy credentials to clipboard
+  if [[ "$_apop_copy_to_clipboard" == true ]]; then
+    printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_REGION=%s\nAWS_SESSION_TOKEN=%s\n' \
+      "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" "$AWS_REGION" "$AWS_SESSION_TOKEN" \
+      | pbcopy
+    echo "Credentials copied to clipboard" >&2
   fi
 
   # Show caller identity
