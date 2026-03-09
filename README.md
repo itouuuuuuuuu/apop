@@ -67,6 +67,12 @@ apop arn:aws:iam::123456789012:role/MyRole
 # Copy credentials to clipboard after assuming role
 apop -c
 apop -c my-profile
+
+# Role chaining (assume another role using current session credentials)
+apop -r arn:aws:iam::999999999999:role/CrossAccountRole
+
+# Role chaining + copy to clipboard
+apop -c -r arn:aws:iam::999999999999:role/CrossAccountRole
 ```
 
 ## Configuration
@@ -90,3 +96,16 @@ APOP_AWS_REGION="ap-northeast-1"
 3. If MFA is required, retrieves TOTP from 1Password
 4. Calls `aws sts assume-role` to obtain temporary credentials
 5. Exports credentials as environment variables in the current shell
+
+### Role Chaining
+
+Use the `-r` option to chain-assume another role using your current session credentials (no 1Password needed).
+This is useful for cross-account access where you need to assume a role from an already-assumed role.
+
+```bash
+# First, assume a role as usual
+apop my-profile
+
+# Then chain to another account's role
+apop -r arn:aws:iam::999999999999:role/CrossAccountRole
+```

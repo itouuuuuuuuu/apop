@@ -9,6 +9,7 @@ APOP_CONFIG="${APOP_CONFIG:-$HOME/.config/apop/config}"
 apop() {
   # Parse options
   local _apop_copy_to_clipboard=false
+  local _apop_role_chain_arn=""
   local args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -19,6 +20,14 @@ apop() {
       -c)
         _apop_copy_to_clipboard=true
         shift
+        ;;
+      -r)
+        if [[ -z "${2:-}" ]]; then
+          echo "Error: -r requires a role ARN argument" >&2
+          return 1
+        fi
+        _apop_role_chain_arn="$2"
+        shift 2
         ;;
       *)
         args+=("$1")
@@ -67,6 +76,12 @@ apop() {
     return 1
   fi
 
+  # Role chaining: use current session credentials to assume another role
+  if [[ -n "${_apop_role_chain_arn:-}" ]]; then
+    _apop_chain_role "$_apop_role_chain_arn"
+    return
+  fi
+
   # Determine role (credentials fetched lazily after profile selection)
   if [[ $# -gt 0 ]]; then
     if [[ "$1" =~ ^arn:aws:iam::[0-9]{12}:role/ ]]; then
@@ -81,10 +96,11 @@ apop() {
 
 _apop_usage() {
   cat >&2 <<EOF
-Usage: apop [-c] [profile-name | role-arn]
+Usage: apop [-c] [-r role-arn] [profile-name | role-arn]
 
 Options:
   -c           Copy credentials to clipboard after assuming role
+  -r role-arn  Chain-assume a role using current session credentials
 
 Commands:
   init         Generate sample config file
@@ -92,11 +108,13 @@ Commands:
   --help       Show this help
 
 Examples:
-  apop                                          # Interactive selection with fzf
-  apop my-profile                               # Direct profile switch
-  apop arn:aws:iam::123456789012:role/MyRole     # Direct ARN assumption
-  apop -c                                       # Interactive + copy to clipboard
-  apop -c my-profile                            # Direct switch + copy to clipboard
+  apop                                                    # Interactive selection with fzf
+  apop my-profile                                         # Direct profile switch
+  apop arn:aws:iam::123456789012:role/MyRole               # Direct ARN assumption
+  apop -c                                                 # Interactive + copy to clipboard
+  apop -c my-profile                                      # Direct switch + copy to clipboard
+  apop -r arn:aws:iam::999999999999:role/CrossRole         # Role chaining
+  apop -c -r arn:aws:iam::999999999999:role/CrossRole      # Role chaining + clipboard
 EOF
 }
 
@@ -158,14 +176,7 @@ _apop_assume_profile() {
 _apop_assume_role() {
   local role_arn="$1" profile_name="$2" config_mfa_serial="${3:-}"
 
-  # Check dependencies
-  local cmd; for cmd in op:1password-cli aws:awscli jq:jq; do
-    if ! command -v "${cmd%%:*}" &>/dev/null; then
-      echo "Error: ${cmd%%:*} is not installed" >&2
-      echo "Install it: brew install ${cmd##*:}" >&2
-      return 1
-    fi
-  done
+  _apop_check_deps op:1password-cli aws:awscli jq:jq || return 1
 
   # Get credentials from 1Password
   local op_fields="${APOP_OP_FIELD_ACCESS_KEY_ID:-aws_access_key_id},${APOP_OP_FIELD_SECRET_ACCESS_KEY:-aws_secret_access_key},${APOP_OP_FIELD_MFA_SERIAL:-mfa_serial}"
@@ -202,12 +213,7 @@ _apop_assume_role() {
     mfa_serial="$config_mfa_serial"
   fi
 
-  local session_name
-  if [[ -n "$profile_name" ]]; then
-    session_name="$profile_name-session"
-  else
-    session_name="apop-$$"
-  fi
+  local session_name="${role_arn##*/}"
 
   local sts_args=(sts assume-role --role-arn "$role_arn" --role-session-name "$session_name")
 
@@ -263,36 +269,82 @@ _apop_assume_role() {
     _APOP_LAST_TOTP_WINDOW=$(( $(date +%s) / 30 ))
   fi
 
-  # Export credentials (parse all fields in one jq call)
-  eval "$(echo "$sts_json" | jq -r '.Credentials |
-    "export AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nexport AWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nexport AWS_SESSION_TOKEN=\(.SessionToken)"
-  ')"
-  export AWS_REGION="$APOP_AWS_REGION"
+  _apop_apply_credentials "$sts_json" "$role_arn"
   if [[ -n "$profile_name" ]]; then
     export AWS_PROFILE="$profile_name"
     export AWS_DEFAULT_PROFILE="$profile_name"
-  fi
-  export AWS_ASSUMED_ROLE_ARN="$role_arn"
-
-  if [[ -n "$profile_name" ]]; then
     echo "Successfully assumed role for profile: $profile_name" >&2
   else
     echo "Successfully assumed role: ${role_arn##*/}" >&2
   fi
+  _apop_finalize
+}
 
-  # Copy credentials to clipboard
+_apop_chain_role() {
+  local role_arn="$1"
+
+  # Verify current session credentials exist
+  if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" || -z "${AWS_SESSION_TOKEN:-}" ]]; then
+    echo "Error: no active AWS session credentials found" >&2
+    echo "First assume a role with: apop <profile-name>" >&2
+    return 1
+  fi
+
+  _apop_check_deps aws:awscli jq:jq || return 1
+
+  local parent_role="${AWS_ASSUMED_ROLE_ARN##*/}"
+  local parent_account="${AWS_ASSUMED_ROLE_ARN#*:*:*:*:}"
+  parent_account="${parent_account%%:*}"
+  local session_name="${parent_role}@${parent_account}"
+
+  echo "Chain-assuming role: ${role_arn##*/}" >&2
+
+  local sts_json
+  if ! sts_json=$(aws sts assume-role \
+    --role-arn "$role_arn" \
+    --role-session-name "$session_name" \
+    2>&1); then
+    echo "Error: failed to chain-assume role" >&2
+    echo "$sts_json" >&2
+    echo "Check the role ARN and ensure your current role has sts:AssumeRole permission" >&2
+    return 1
+  fi
+
+  _apop_apply_credentials "$sts_json" "$role_arn"
+  echo "Successfully chain-assumed role: ${role_arn##*/}" >&2
+  _apop_finalize
+}
+
+# --- Helpers ---
+
+_apop_check_deps() {
+  local cmd; for cmd in "$@"; do
+    if ! command -v "${cmd%%:*}" &>/dev/null; then
+      echo "Error: ${cmd%%:*} is not installed" >&2
+      echo "Install it: brew install ${cmd##*:}" >&2
+      return 1
+    fi
+  done
+}
+
+_apop_apply_credentials() {
+  local sts_json="$1" role_arn="$2"
+  eval "$(jq -r '.Credentials |
+    "export AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nexport AWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nexport AWS_SESSION_TOKEN=\(.SessionToken)"
+  ' <<< "$sts_json")"
+  export AWS_REGION="$APOP_AWS_REGION"
+  export AWS_ASSUMED_ROLE_ARN="$role_arn"
+}
+
+_apop_finalize() {
   if [[ "$_apop_copy_to_clipboard" == true ]]; then
     printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_REGION=%s\nAWS_SESSION_TOKEN=%s\n' \
       "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" "$AWS_REGION" "$AWS_SESSION_TOKEN" \
       | pbcopy
     echo "Credentials copied to clipboard" >&2
   fi
-
-  # Show caller identity
   AWS_PAGER="" aws sts get-caller-identity --output table >&2
 }
-
-# --- Helpers ---
 
 _apop_get_totp() {
   # Wait if still in the same TOTP window as last use
