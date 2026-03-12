@@ -7,36 +7,31 @@ Switches AWS profiles using credentials stored in 1Password. No AWS secrets are 
 ## Prerequisites
 
 - macOS
-- [Homebrew](https://brew.sh/)
 - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`)
 - [AWS CLI](https://aws.amazon.com/cli/) (`aws`)
-- [jq](https://jqlang.github.io/jq/) (`jq`)
-- [fzf](https://github.com/junegunn/fzf) (optional, for interactive selection)
 
 ## Installation
 
-### 1. Clone the repository
+### Homebrew (recommended)
 
 ```bash
-git clone https://github.com/itouuuuuuuuu/apop.git ~/.apop
+brew install itouuuuuuuuu/tap/apop
 ```
 
-### 2. Install dependencies
+This automatically installs `jq` and `fzf` as dependencies. You also need to install the following manually:
 
 ```bash
-brew install awscli jq fzf
+brew install awscli
 brew install --cask 1password-cli
 ```
 
-### 3. Add to your shell
-
-Add the following to your `~/.zshrc`:
+Then add the following to your `~/.zshrc`:
 
 ```bash
-source ~/.apop/apop.sh
+source "$(brew --prefix)/share/apop/apop.sh"
 ```
 
-Then reload your shell:
+### Reload your shell
 
 ```bash
 source ~/.zshrc
@@ -115,3 +110,7 @@ apop my-profile
 # Then chain to another account's role
 apop -r arn:aws:iam::999999999999:role/CrossAccountRole
 ```
+
+## License
+
+[MIT](LICENSE)

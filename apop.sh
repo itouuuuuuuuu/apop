@@ -3,7 +3,7 @@
 # Source this file in your .zshrc or .bashrc:
 #   source /path/to/apop.sh
 
-APOP_VERSION="1.0.0"
+APOP_VERSION="1.0.1"
 APOP_CONFIG="${APOP_CONFIG:-$HOME/.config/apop/config}"
 
 apop() {
@@ -320,8 +320,21 @@ _apop_chain_role() {
 _apop_check_deps() {
   local cmd; for cmd in "$@"; do
     if ! command -v "${cmd%%:*}" &>/dev/null; then
-      echo "Error: ${cmd%%:*} is not installed" >&2
-      echo "Install it: brew install ${cmd##*:}" >&2
+      local bin="${cmd%%:*}" pkg="${cmd##*:}"
+      echo "Error: ${bin} is not installed" >&2
+      case "$bin" in
+        op)
+          echo "Install it: brew install --cask 1password-cli" >&2
+          echo "See: https://developer.1password.com/docs/cli/get-started/" >&2
+          ;;
+        aws)
+          echo "Install it: brew install awscli" >&2
+          echo "See: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html" >&2
+          ;;
+        *)
+          echo "Install it: brew install ${pkg}" >&2
+          ;;
+      esac
       return 1
     fi
   done
