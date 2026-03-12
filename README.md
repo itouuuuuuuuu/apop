@@ -12,8 +12,6 @@ Switches AWS profiles using credentials stored in 1Password. No AWS secrets are 
 
 ## Installation
 
-### Homebrew (recommended)
-
 ```bash
 brew install itouuuuuuuuu/tap/apop
 ```
@@ -31,7 +29,7 @@ Then add the following to your `~/.zshrc`:
 source "$(brew --prefix)/share/apop/apop.sh"
 ```
 
-### Reload your shell
+Reload your shell:
 
 ```bash
 source ~/.zshrc
@@ -39,13 +37,24 @@ source ~/.zshrc
 
 ## Setup
 
-```bash
-# Generate a sample config
-apop init
+Generate a sample config and edit it:
 
-# Edit with your settings
+```bash
+apop init
 $EDITOR ~/.config/apop/config
 ```
+
+## Configuration
+
+Config file: `~/.config/apop/config`
+
+| Variable | Description | Default |
+|---|---|---|
+| `APOP_OP_ITEM_NAME` | 1Password item name containing AWS credentials | (required) |
+| `APOP_AWS_REGION` | AWS region | (required) |
+| `APOP_OP_FIELD_ACCESS_KEY_ID` | 1Password field label for Access Key ID | `aws_access_key_id` |
+| `APOP_OP_FIELD_SECRET_ACCESS_KEY` | 1Password field label for Secret Access Key | `aws_secret_access_key` |
+| `APOP_OP_FIELD_MFA_SERIAL` | 1Password field label for MFA Serial | `mfa_serial` |
 
 ## Usage
 
@@ -74,20 +83,6 @@ apop --help
 
 # Show version
 apop --version
-```
-
-## Configuration
-
-`~/.config/apop/config`:
-
-```bash
-APOP_OP_ITEM_NAME="aws_profile"
-APOP_AWS_REGION="ap-northeast-1"
-
-# 1Password field labels (defaults shown)
-# APOP_OP_FIELD_ACCESS_KEY_ID="aws_access_key_id"
-# APOP_OP_FIELD_SECRET_ACCESS_KEY="aws_secret_access_key"
-# APOP_OP_FIELD_MFA_SERIAL="mfa_serial"
 ```
 
 ## How It Works
