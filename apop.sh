@@ -13,7 +13,7 @@ apop() {
   local args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      init|--version|--help|-h)
+      init|--version|--help|-h|-b)
         args+=("$1")
         shift
         ;;
@@ -48,6 +48,10 @@ apop() {
       ;;
     --help|-h)
       _apop_usage
+      return
+      ;;
+    -b)
+      _apop_open_console
       return
       ;;
   esac
@@ -96,9 +100,10 @@ apop() {
 
 _apop_usage() {
   cat >&2 <<EOF
-Usage: apop [-c] [-r role-arn] [profile-name | role-arn]
+Usage: apop [-b] [-c] [-r role-arn] [profile-name | role-arn]
 
 Options:
+  -b           Open AWS Management Console in browser with current credentials
   -c           Copy credentials to clipboard after assuming role
   -r role-arn  Chain-assume a role using current session credentials
 
@@ -115,6 +120,7 @@ Examples:
   apop -c my-profile                                      # Direct switch + copy to clipboard
   apop -r arn:aws:iam::999999999999:role/CrossRole         # Role chaining
   apop -c -r arn:aws:iam::999999999999:role/CrossRole      # Role chaining + clipboard
+  apop -b                                                 # Open AWS Console in browser
 EOF
 }
 
@@ -357,6 +363,47 @@ _apop_finalize() {
     echo "Credentials copied to clipboard" >&2
   fi
   AWS_PAGER="" aws sts get-caller-identity --output table >&2
+}
+
+_apop_open_console() {
+  if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" || -z "${AWS_SESSION_TOKEN:-}" ]]; then
+    echo "Error: no active AWS session credentials found" >&2
+    echo "First assume a role with: apop <profile-name>" >&2
+    return 1
+  fi
+
+  _apop_check_deps curl:curl jq:jq || return 1
+
+  local encoded_session
+  encoded_session=$(jq -rn \
+    --arg id "$AWS_ACCESS_KEY_ID" \
+    --arg key "$AWS_SECRET_ACCESS_KEY" \
+    --arg token "$AWS_SESSION_TOKEN" \
+    '{sessionId: $id, sessionKey: $key, sessionToken: $token} | @uri')
+
+  local federation_url="https://signin.aws.amazon.com/federation"
+  local encoded_destination="https%3A%2F%2Fconsole.aws.amazon.com%2F"
+  if [[ "${AWS_REGION:-}" == cn-* ]]; then
+    federation_url="https://signin.amazonaws.cn/federation"
+    encoded_destination="https%3A%2F%2Fconsole.amazonaws.cn%2F"
+  fi
+
+  local token_response
+  token_response=$(curl -s "${federation_url}?Action=getSigninToken&SessionDuration=43200&Session=${encoded_session}")
+
+  local signin_token
+  signin_token=$(jq -r '.SigninToken // empty' <<< "$token_response")
+
+  if [[ -z "$signin_token" ]]; then
+    echo "Error: failed to get federation sign-in token" >&2
+    echo "$token_response" >&2
+    return 1
+  fi
+
+  local login_url="${federation_url}?Action=login&Issuer=apop&Destination=${encoded_destination}&SigninToken=${signin_token}"
+
+  echo "Opening AWS Console in browser..." >&2
+  open "$login_url"
 }
 
 _apop_get_totp() {
