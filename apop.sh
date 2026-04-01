@@ -9,12 +9,17 @@ APOP_CONFIG="${APOP_CONFIG:-$HOME/.config/apop/config}"
 apop() {
   # Parse options
   local _apop_copy_to_clipboard=false
+  local _apop_open_browser=false
   local _apop_role_chain_arn=""
   local args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      init|--version|--help|-h|-b)
+      init|--version|--help|-h)
         args+=("$1")
+        shift
+        ;;
+      -b)
+        _apop_open_browser=true
         shift
         ;;
       -c)
@@ -50,10 +55,6 @@ apop() {
       _apop_usage
       return
       ;;
-    -b)
-      _apop_open_console
-      return
-      ;;
   esac
 
   # Load config
@@ -78,6 +79,14 @@ apop() {
     echo "Error: APOP_AWS_REGION is required in $APOP_CONFIG" >&2
     echo "Edit the config: \$EDITOR $APOP_CONFIG" >&2
     return 1
+  fi
+
+  # Browser shortcut: if already assumed and no profile specified, open console directly
+  if [[ "${_apop_open_browser:-false}" == "true" && $# -eq 0 ]]; then
+    if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
+      _apop_open_console
+      return
+    fi
   fi
 
   # Role chaining: use current session credentials to assume another role
@@ -363,6 +372,9 @@ _apop_finalize() {
     echo "Credentials copied to clipboard" >&2
   fi
   AWS_PAGER="" aws sts get-caller-identity --output table >&2
+  if [[ "${_apop_open_browser:-false}" == "true" ]]; then
+    _apop_open_console
+  fi
 }
 
 _apop_open_console() {
