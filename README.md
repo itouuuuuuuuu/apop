@@ -78,8 +78,11 @@ apop -r arn:aws:iam::999999999999:role/CrossAccountRole
 # Role chaining + copy to clipboard
 apop -c -r arn:aws:iam::999999999999:role/CrossAccountRole
 
-# Open AWS Management Console in browser with current credentials
+# Open AWS Management Console in browser (uses current session, or selects profile interactively)
 apop -b
+
+# Assume a specific profile and open console in browser
+apop -b my-profile
 
 # Show help
 apop --help
@@ -111,15 +114,19 @@ apop -r arn:aws:iam::999999999999:role/CrossAccountRole
 
 ### Browser Console
 
-Use the `-b` option to open the AWS Management Console in your default browser using current session credentials.
+Use the `-b` option to open the AWS Management Console in your default browser.
 This uses the AWS Federation sign-in endpoint to generate a pre-authenticated console URL.
 
-```bash
-# First, assume a role as usual
-apop my-profile
+- If you already have an active session, `apop -b` opens the console directly.
+- If no session is active, `apop -b` presents an interactive profile selector (fzf), assumes the selected role, and then opens the console.
+- You can also specify a profile directly: `apop -b my-profile`.
 
-# Open the console in your browser
+```bash
+# Open console with current session (or select profile interactively if no session)
 apop -b
+
+# Assume a specific profile and open console in one step
+apop -b my-profile
 ```
 
 ## License
