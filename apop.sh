@@ -489,7 +489,7 @@ _apop_select_profile() {
   local current="${AWS_PROFILE:-${AWS_DEFAULT_PROFILE:-default}}"
 
   if command -v fzf &>/dev/null; then
-    echo "$profiles" | fzf --height 40% --reverse --header "Current: $current | Select AWS Profile"
+    echo "$profiles" | fzf --cycle --height 40% --reverse --header "Current: $current | Select AWS Profile"
   else
     echo "Current: $current" >&2
     echo "Select AWS Profile:" >&2
