@@ -57,7 +57,22 @@ apop() {
       ;;
   esac
 
-  # Load config
+  # Early-exit paths that operate on the current session only and do not need
+  # the 1Password-backed config file.
+
+  # Browser shortcut: if already assumed and no profile specified, open console directly
+  if [[ "${_apop_open_browser:-false}" == "true" && $# -eq 0 && -n "${AWS_SESSION_TOKEN:-}" ]]; then
+    _apop_open_console
+    return
+  fi
+
+  # Role chaining: use current session credentials to assume another role
+  if [[ -n "${_apop_role_chain_arn:-}" ]]; then
+    _apop_chain_role "$_apop_role_chain_arn"
+    return
+  fi
+
+  # Load config (required below for paths that fetch credentials from 1Password)
   if [[ ! -f "$APOP_CONFIG" ]]; then
     echo "Error: config file not found: $APOP_CONFIG" >&2
     echo "Create it: apop init" >&2
@@ -79,20 +94,6 @@ apop() {
     echo "Error: APOP_AWS_REGION is required in $APOP_CONFIG" >&2
     echo "Edit the config: \$EDITOR $APOP_CONFIG" >&2
     return 1
-  fi
-
-  # Browser shortcut: if already assumed and no profile specified, open console directly
-  if [[ "${_apop_open_browser:-false}" == "true" && $# -eq 0 ]]; then
-    if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
-      _apop_open_console
-      return
-    fi
-  fi
-
-  # Role chaining: use current session credentials to assume another role
-  if [[ -n "${_apop_role_chain_arn:-}" ]]; then
-    _apop_chain_role "$_apop_role_chain_arn"
-    return
   fi
 
   # Determine role (credentials fetched lazily after profile selection)
@@ -203,20 +204,26 @@ _apop_assume_role() {
   fi
   echo "Using credentials from 1Password" >&2
 
-  # Parse all credential fields in one jq call
+  # Parse all credential fields in one jq call.
+  # Use NUL-delimited output so field values (which come from user-controlled
+  # 1Password data) are never interpreted by the shell. Avoid `eval`.
   local access_key_id secret_access_key mfa_serial
   local field_ak="${APOP_OP_FIELD_ACCESS_KEY_ID:-aws_access_key_id}"
   local field_sk="${APOP_OP_FIELD_SECRET_ACCESS_KEY:-aws_secret_access_key}"
   local field_mfa="${APOP_OP_FIELD_MFA_SERIAL:-mfa_serial}"
 
-  eval "$(echo "$op_json" | jq -r --arg ak "$field_ak" --arg sk "$field_sk" --arg mfa "$field_mfa" '
+  {
+    IFS= read -r -d '' access_key_id
+    IFS= read -r -d '' secret_access_key
+    IFS= read -r -d '' mfa_serial
+  } < <(printf '%s' "$op_json" | jq -j --arg ak "$field_ak" --arg sk "$field_sk" --arg mfa "$field_mfa" '
     reduce .[] as $f ({};
       if $f.label == $ak then .ak = $f.value
       elif $f.label == $sk then .sk = $f.value
       elif $f.label == $mfa then .mfa = $f.value
       else . end
-    ) | "access_key_id=\(.ak // "")\nsecret_access_key=\(.sk // "")\nmfa_serial=\(.mfa // "")"
-  ')"
+    ) | (.ak // ""), "\u0000", (.sk // ""), "\u0000", (.mfa // ""), "\u0000"
+  ')
 
   if [[ -z "$access_key_id" || -z "$secret_access_key" ]]; then
     echo "Error: AWS credentials not found in 1Password" >&2
@@ -307,10 +314,19 @@ _apop_chain_role() {
 
   _apop_check_deps aws:awscli jq:jq || return 1
 
-  local parent_role="${AWS_ASSUMED_ROLE_ARN##*/}"
-  local parent_account="${AWS_ASSUMED_ROLE_ARN#*:*:*:*:}"
-  parent_account="${parent_account%%:*}"
-  local session_name="${parent_role}@${parent_account}"
+  # Build a RoleSessionName from the current session's assumed role when
+  # possible. If AWS_ASSUMED_ROLE_ARN is unset (e.g. the current session was
+  # created outside apop), fall back to a fixed name so STS does not reject
+  # the call with a RoleSessionName length error.
+  local session_name="apop-chain"
+  if [[ -n "${AWS_ASSUMED_ROLE_ARN:-}" ]]; then
+    local parent_role="${AWS_ASSUMED_ROLE_ARN##*/}"
+    local parent_account="${AWS_ASSUMED_ROLE_ARN#*:*:*:*:}"
+    parent_account="${parent_account%%:*}"
+    if [[ -n "$parent_role" && -n "$parent_account" && "$parent_role" != "$AWS_ASSUMED_ROLE_ARN" ]]; then
+      session_name="${parent_role}@${parent_account}"
+    fi
+  fi
 
   echo "Chain-assuming role: ${role_arn##*/}" >&2
 
@@ -357,10 +373,20 @@ _apop_check_deps() {
 
 _apop_apply_credentials() {
   local sts_json="$1" role_arn="$2"
-  eval "$(jq -r '.Credentials |
-    "export AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nexport AWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nexport AWS_SESSION_TOKEN=\(.SessionToken)"
-  ' <<< "$sts_json")"
-  export AWS_REGION="$APOP_AWS_REGION"
+  # Parse credentials with NUL delimiter to avoid shell interpretation of
+  # STS response values. Avoid `eval`.
+  local access_key_id secret_access_key session_token
+  {
+    IFS= read -r -d '' access_key_id
+    IFS= read -r -d '' secret_access_key
+    IFS= read -r -d '' session_token
+  } < <(jq -j '.Credentials | (.AccessKeyId, "\u0000", .SecretAccessKey, "\u0000", .SessionToken, "\u0000")' <<< "$sts_json")
+  export AWS_ACCESS_KEY_ID="$access_key_id"
+  export AWS_SECRET_ACCESS_KEY="$secret_access_key"
+  export AWS_SESSION_TOKEN="$session_token"
+  # Role chaining / browser shortcut paths may run without the apop config,
+  # so fall back to the existing AWS_REGION from the environment.
+  export AWS_REGION="${APOP_AWS_REGION:-${AWS_REGION:-}}"
   export AWS_ASSUMED_ROLE_ARN="$role_arn"
 }
 
@@ -452,14 +478,20 @@ _apop_list_profiles() {
     echo "Create it: aws configure" >&2
     return 1
   fi
-  awk '/^\[profile /{gsub(/\[profile |\]/, ""); print}' "$aws_config"
+  awk '
+    /^[[:space:]]*[#;]/ { next }
+    /^\[profile / { gsub(/\[profile |\]/, ""); print; next }
+    /^\[default\]/ { print "default"; next }
+  ' "$aws_config"
 }
 
 _apop_get_profile_value() {
   local config_file="$1" profile_name="$2" key="$3"
   awk -v profile="$profile_name" -v key="$key" '
-    /^\[profile / { current = $0; gsub(/\[profile |\]/, "", current) }
-    current == profile && index($0, key "=") || current == profile && index($0, key " =") {
+    /^[[:space:]]*[#;]/ { next }
+    /^\[profile / { current = $0; gsub(/\[profile |\]/, "", current); next }
+    /^\[default\]/ { current = "default"; next }
+    current == profile && (index($0, key "=") || index($0, key " =")) {
       sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit
     }
   ' "$config_file"
@@ -471,7 +503,9 @@ _apop_get_profile_values() {
   local keys="$*"
   awk -v profile="$profile_name" -v keys="$keys" '
     BEGIN { n = split(keys, ka, " ") }
-    /^\[profile / { current = $0; gsub(/\[profile |\]/, "", current) }
+    /^[[:space:]]*[#;]/ { next }
+    /^\[profile / { current = $0; gsub(/\[profile |\]/, "", current); next }
+    /^\[default\]/ { current = "default"; next }
     current == profile {
       for (i = 1; i <= n; i++) {
         k = ka[i]
