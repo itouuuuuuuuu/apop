@@ -15,21 +15,23 @@ apop() {
   local args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      init|--version|--help|-h)
+      init|--version|-v|--help|-h)
         args+=("$1")
         shift
         ;;
-      -b)
+      -b|--browse)
         _apop_open_browser=true
         shift
         ;;
-      -c)
+      -c|--copy)
         _apop_copy_to_clipboard=true
         shift
         ;;
-      -r)
-        if [[ -z "${2:-}" ]]; then
-          echo "Error: -r requires a role ARN argument" >&2
+      -r|--role-chain)
+        # Reject empty arg AND a following option (e.g. `apop --role-chain --copy`)
+        # so the next flag is not silently consumed as a role ARN.
+        if [[ -z "${2:-}" || "${2}" == -* ]]; then
+          echo "Error: -r/--role-chain requires a role ARN argument" >&2
           return 1
         fi
         _apop_role_chain_arn="$2"
@@ -68,7 +70,7 @@ apop() {
       _apop_init
       return
       ;;
-    --version)
+    --version|-v)
       echo "apop $APOP_VERSION"
       return
       ;;
@@ -87,8 +89,14 @@ apop() {
     return
   fi
 
-  # Role chaining: use current session credentials to assume another role
+  # Role chaining: use current session credentials to assume another role.
+  # Reject leftover positional args (e.g. `apop --role-chain arn:... extra`)
+  # so they are not silently dropped.
   if [[ -n "${_apop_role_chain_arn:-}" ]]; then
+    if [[ $# -gt 0 ]]; then
+      echo "Error: -r/--role-chain does not accept additional arguments" >&2
+      return 1
+    fi
     _apop_chain_role "$_apop_role_chain_arn"
     return
   fi
@@ -131,30 +139,48 @@ apop() {
 
 _apop_usage() {
   cat >&2 <<EOF
-Usage: apop [-b] [-c] [-r role-arn] [profile-name | role-arn]
+Usage: apop [-b | --browse] [-c | --copy] [-r role-arn | --role-chain role-arn]
+            [profile-name | role-arn]
        apop -u | --unset
 
 Options:
-  -b           Open AWS Management Console in browser with current credentials
-  -c           Copy credentials to clipboard after assuming role
-  -r role-arn  Chain-assume a role using current session credentials
-  -u, --unset  Unset all environment variables set by apop in the current shell
+  -b, --browse                Open AWS Management Console in browser with current credentials
+  -c, --copy                  Copy credentials to clipboard after assuming role
+  -r, --role-chain role-arn   Chain-assume a role using current session credentials
+  -u, --unset                 Unset all environment variables set by apop in the current shell
 
 Commands:
-  init         Generate sample config file
-  --version    Show version
-  --help       Show this help
+  init                        Generate sample config file
+  -v, --version               Show version
+  -h, --help                  Show this help
 
 Examples:
-  apop                                                    # Interactive selection with fzf
-  apop my-profile                                         # Direct profile switch
-  apop arn:aws:iam::123456789012:role/MyRole               # Direct ARN assumption
-  apop -c                                                 # Interactive + copy to clipboard
-  apop -c my-profile                                      # Direct switch + copy to clipboard
-  apop -r arn:aws:iam::999999999999:role/CrossRole         # Role chaining
-  apop -c -r arn:aws:iam::999999999999:role/CrossRole      # Role chaining + clipboard
-  apop -b                                                 # Open AWS Console in browser
-  apop -u                                                 # Clear apop-set AWS env vars from current shell
+  # Interactive selection with fzf
+  apop
+
+  # Direct profile switch
+  apop my-profile
+
+  # Direct ARN assumption
+  apop arn:aws:iam::123456789012:role/MyRole
+
+  # Interactive + copy to clipboard
+  apop --copy
+
+  # Direct switch + copy to clipboard
+  apop --copy my-profile
+
+  # Role chaining
+  apop --role-chain arn:aws:iam::999999999999:role/CrossRole
+
+  # Role chaining + copy to clipboard
+  apop --copy --role-chain arn:aws:iam::999999999999:role/CrossRole
+
+  # Open AWS Console in browser
+  apop --browse
+
+  # Clear apop-set AWS env vars from current shell
+  apop --unset
 EOF
 }
 

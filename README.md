@@ -58,6 +58,8 @@ Config file: `~/.config/apop/config`
 
 ## Usage
 
+> The examples below use long options. Each option also has a short form — run `apop -h` to see the full list.
+
 ```bash
 # Interactive profile selection with fzf
 apop
@@ -69,23 +71,22 @@ apop my-profile
 apop arn:aws:iam::123456789012:role/MyRole
 
 # Copy credentials to clipboard after assuming role
-apop -c
-apop -c my-profile
+apop --copy
+apop --copy my-profile
 
 # Role chaining (assume another role using current session credentials)
-apop -r arn:aws:iam::999999999999:role/CrossAccountRole
+apop --role-chain arn:aws:iam::999999999999:role/CrossAccountRole
 
 # Role chaining + copy to clipboard
-apop -c -r arn:aws:iam::999999999999:role/CrossAccountRole
+apop --copy --role-chain arn:aws:iam::999999999999:role/CrossAccountRole
 
 # Open AWS Management Console in browser (uses current session, or selects profile interactively)
-apop -b
+apop --browse
 
 # Assume a specific profile and open console in browser
-apop -b my-profile
+apop --browse my-profile
 
 # Unset all environment variables set by apop in the current shell
-apop -u
 apop --unset
 
 # Show help
@@ -105,7 +106,7 @@ apop --version
 
 ### Role Chaining
 
-Use the `-r` option to chain-assume another role using your current session credentials (no 1Password needed).
+Use the `--role-chain` option to chain-assume another role using your current session credentials (no 1Password needed).
 This is useful for cross-account access where you need to assume a role from an already-assumed role.
 
 ```bash
@@ -113,29 +114,29 @@ This is useful for cross-account access where you need to assume a role from an 
 apop my-profile
 
 # Then chain to another account's role
-apop -r arn:aws:iam::999999999999:role/CrossAccountRole
+apop --role-chain arn:aws:iam::999999999999:role/CrossAccountRole
 ```
 
 ### Browser Console
 
-Use the `-b` option to open the AWS Management Console in your default browser.
+Use the `--browse` option to open the AWS Management Console in your default browser.
 This uses the AWS Federation sign-in endpoint to generate a pre-authenticated console URL.
 
-- If you already have an active session, `apop -b` opens the console directly.
-- If no session is active, `apop -b` presents an interactive profile selector (fzf), assumes the selected role, and then opens the console.
-- You can also specify a profile directly: `apop -b my-profile`.
+- If you already have an active session, `apop --browse` opens the console directly.
+- If no session is active, `apop --browse` presents an interactive profile selector (fzf), assumes the selected role, and then opens the console.
+- You can also specify a profile directly: `apop --browse my-profile`.
 
 ```bash
 # Open console with current session (or select profile interactively if no session)
-apop -b
+apop --browse
 
 # Assume a specific profile and open console in one step
-apop -b my-profile
+apop --browse my-profile
 ```
 
 ### Unsetting Credentials
 
-Use `-u` (or `--unset`) to clear every environment variable apop sets in the current shell. Useful when switching to a context that should not see apop-managed credentials.
+Use `--unset` to clear every environment variable apop sets in the current shell. Useful when switching to a context that should not see apop-managed credentials.
 
 The following are unset:
 
@@ -148,11 +149,11 @@ The following are unset:
 Variables apop never touches (e.g. `AWS_DEFAULT_REGION`, `AWS_SECURITY_TOKEN`, `APOP_*`) are left alone. Pre-existing values of the same names (for example an `AWS_REGION` you exported before running apop) are **not** restored — they are unset, since apop overwrote them when assuming a role.
 
 ```bash
-apop -u
+apop --unset
 # apop session credentials cleared
 ```
 
-`-u` cannot be combined with any other option or argument; doing so returns an error.
+`--unset` cannot be combined with any other option or argument; doing so returns an error.
 
 ## License
 
