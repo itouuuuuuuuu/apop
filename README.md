@@ -84,6 +84,10 @@ apop -b
 # Assume a specific profile and open console in browser
 apop -b my-profile
 
+# Unset all environment variables set by apop in the current shell
+apop -u
+apop --unset
+
 # Show help
 apop --help
 
@@ -128,6 +132,27 @@ apop -b
 # Assume a specific profile and open console in one step
 apop -b my-profile
 ```
+
+### Unsetting Credentials
+
+Use `-u` (or `--unset`) to clear every environment variable apop sets in the current shell. Useful when switching to a context that should not see apop-managed credentials.
+
+The following are unset:
+
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
+- `AWS_REGION`
+- `AWS_ASSUMED_ROLE_ARN`
+- `AWS_PROFILE`, `AWS_DEFAULT_PROFILE`
+- `_APOP_LAST_TOTP_WINDOW` (apop's internal TOTP-window cache)
+
+Variables apop never touches (e.g. `AWS_DEFAULT_REGION`, `AWS_SECURITY_TOKEN`, `APOP_*`) are left alone. Pre-existing values of the same names (for example an `AWS_REGION` you exported before running apop) are **not** restored — they are unset, since apop overwrote them when assuming a role.
+
+```bash
+apop -u
+# apop session credentials cleared
+```
+
+`-u` cannot be combined with any other option or argument; doing so returns an error.
 
 ## License
 
