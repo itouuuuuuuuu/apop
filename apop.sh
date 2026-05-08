@@ -11,6 +11,7 @@ apop() {
   local _apop_copy_to_clipboard=false
   local _apop_open_browser=false
   local _apop_role_chain_arn=""
+  local _apop_unset=false
   local args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -34,6 +35,10 @@ apop() {
         _apop_role_chain_arn="$2"
         shift 2
         ;;
+      -u|--unset)
+        _apop_unset=true
+        shift
+        ;;
       *)
         args+=("$1")
         shift
@@ -41,6 +46,22 @@ apop() {
     esac
   done
   set -- "${args[@]}"
+
+  # -u/--unset must be exclusive: any other option or positional argument
+  # (including init / --help / --version) is rejected so the dispatch is
+  # unambiguous. This must run BEFORE the init|--version|--help dispatch
+  # below or `apop -u --help` would silently print help instead of erroring.
+  if [[ "$_apop_unset" == true ]]; then
+    if [[ $# -gt 0 \
+          || "$_apop_copy_to_clipboard" == true \
+          || "$_apop_open_browser" == true \
+          || -n "$_apop_role_chain_arn" ]]; then
+      echo "Error: -u/--unset cannot be combined with other options or arguments" >&2
+      return 1
+    fi
+    _apop_unset_session
+    return
+  fi
 
   case "${1:-}" in
     init)
@@ -111,11 +132,13 @@ apop() {
 _apop_usage() {
   cat >&2 <<EOF
 Usage: apop [-b] [-c] [-r role-arn] [profile-name | role-arn]
+       apop -u | --unset
 
 Options:
   -b           Open AWS Management Console in browser with current credentials
   -c           Copy credentials to clipboard after assuming role
   -r role-arn  Chain-assume a role using current session credentials
+  -u, --unset  Unset all environment variables set by apop in the current shell
 
 Commands:
   init         Generate sample config file
@@ -131,6 +154,7 @@ Examples:
   apop -r arn:aws:iam::999999999999:role/CrossRole         # Role chaining
   apop -c -r arn:aws:iam::999999999999:role/CrossRole      # Role chaining + clipboard
   apop -b                                                 # Open AWS Console in browser
+  apop -u                                                 # Clear apop-set AWS env vars from current shell
 EOF
 }
 
@@ -388,6 +412,22 @@ _apop_apply_credentials() {
   # so fall back to the existing AWS_REGION from the environment.
   export AWS_REGION="${APOP_AWS_REGION:-${AWS_REGION:-}}"
   export AWS_ASSUMED_ROLE_ARN="$role_arn"
+}
+
+_apop_unset_session() {
+  # Unset every variable apop exports plus the internal TOTP-window cache.
+  # `unset` of an already-unset variable is a no-op, so this is idempotent.
+  # Note: pre-existing values of the same names (e.g. AWS_REGION the user
+  # set before invoking apop) are not restored — they are unset.
+  unset AWS_ACCESS_KEY_ID
+  unset AWS_SECRET_ACCESS_KEY
+  unset AWS_SESSION_TOKEN
+  unset AWS_REGION
+  unset AWS_ASSUMED_ROLE_ARN
+  unset AWS_PROFILE
+  unset AWS_DEFAULT_PROFILE
+  unset _APOP_LAST_TOTP_WINDOW
+  echo "apop session credentials cleared" >&2
 }
 
 _apop_finalize() {
