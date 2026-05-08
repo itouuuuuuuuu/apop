@@ -3,7 +3,7 @@
 # Source this file in your .zshrc or .bashrc:
 #   source /path/to/apop.sh
 
-APOP_VERSION="1.2.2"
+APOP_VERSION="1.3.0"
 APOP_CONFIG="${APOP_CONFIG:-$HOME/.config/apop/config}"
 
 apop() {
