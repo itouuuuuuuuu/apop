@@ -144,9 +144,10 @@ The following are unset:
 - `AWS_REGION`
 - `AWS_ASSUMED_ROLE_ARN`
 - `AWS_PROFILE`, `AWS_DEFAULT_PROFILE`
+- `APOP_PROFILE`
 - `_APOP_LAST_TOTP_WINDOW` (apop's internal TOTP-window cache)
 
-Variables apop never touches (e.g. `AWS_DEFAULT_REGION`, `AWS_SECURITY_TOKEN`, `APOP_*`) are left alone. Pre-existing values of the same names (for example an `AWS_REGION` you exported before running apop) are **not** restored — they are unset, since apop overwrote them when assuming a role.
+Variables apop never touches (e.g. `AWS_DEFAULT_REGION`, `AWS_SECURITY_TOKEN`, other `APOP_*` config vars) are left alone. Pre-existing values of the same names (for example an `AWS_REGION` you exported before running apop) are **not** restored — they are unset, since apop overwrote them when assuming a role.
 
 ```bash
 apop --unset
