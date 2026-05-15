@@ -35,6 +35,19 @@ Reload your shell:
 source ~/.zshrc
 ```
 
+## Upgrading from 1.x to 2.x
+
+**Breaking change**: apop 2.0 no longer exports `AWS_PROFILE` / `AWS_DEFAULT_PROFILE` after assuming a role, and unsets them if they were already set in the shell. This fixes spurious assume-role failures with the Terraform AWS provider and other profile-aware tools (see [Environment Variables Set by apop](#environment-variables-set-by-apop) for the rationale).
+
+Migrate any prompt or script that referenced `AWS_PROFILE` for *display* purposes to the new `APOP_PROFILE` variable:
+
+```diff
+- PS1='[${AWS_PROFILE:-no-profile}] '
++ PS1='[${APOP_PROFILE:-no-profile}] '
+```
+
+Tools that read `AWS_PROFILE` as an AWS profile-selection hint (`aws`, `terraform`, `boto3`, etc.) are unaffected — they will see only the session credentials apop has exported.
+
 ## Setup
 
 Generate a sample config and edit it:
@@ -104,6 +117,25 @@ apop --version
 4. Calls `aws sts assume-role` to obtain temporary credentials
 5. Exports credentials as environment variables in the current shell
 
+### Environment Variables Set by apop
+
+After a successful assume-role, apop exports:
+
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` — the temporary STS credentials
+- `AWS_REGION` — from `APOP_AWS_REGION`
+- `AWS_ASSUMED_ROLE_ARN` — the role ARN that was assumed
+- `APOP_PROFILE` — the profile name (only when a profile was used; cleared on direct ARN assumption)
+
+apop deliberately does **not** export `AWS_PROFILE` / `AWS_DEFAULT_PROFILE`, and unsets them if they were inherited. AWS SDK Go v2's documented credential chain prefers environment-variable credentials, but some profile-aware tools — notably the Terraform AWS provider and the S3 backend — read `AWS_PROFILE` as a profile-selection hint and re-resolve `role_arn` / `source_profile` from `~/.aws/config`, which then fails because the source profile usually has no credentials of its own. Typical symptom:
+
+```
+Error: failed to load assume role arn:aws:iam::...:role/..., of profile default, <nil>
+```
+
+Clearing the two variables removes the ambiguity: every downstream tool sees exactly one credential context (the env vars apop just exported).
+
+If you want to show the current profile in your prompt or in scripts, use `APOP_PROFILE` (e.g. `PS1='[$APOP_PROFILE] '`).
+
 ### Role Chaining
 
 Use the `--role-chain` option to chain-assume another role using your current session credentials (no 1Password needed).
@@ -143,10 +175,11 @@ The following are unset:
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
 - `AWS_REGION`
 - `AWS_ASSUMED_ROLE_ARN`
-- `AWS_PROFILE`, `AWS_DEFAULT_PROFILE`
+- `AWS_PROFILE`, `AWS_DEFAULT_PROFILE` (also cleared by every assume-role; see "Environment Variables Set by apop")
+- `APOP_PROFILE`
 - `_APOP_LAST_TOTP_WINDOW` (apop's internal TOTP-window cache)
 
-Variables apop never touches (e.g. `AWS_DEFAULT_REGION`, `AWS_SECURITY_TOKEN`, `APOP_*`) are left alone. Pre-existing values of the same names (for example an `AWS_REGION` you exported before running apop) are **not** restored — they are unset, since apop overwrote them when assuming a role.
+Variables apop never touches (e.g. `AWS_DEFAULT_REGION`, `AWS_SECURITY_TOKEN`, other `APOP_*` config vars) are left alone. Pre-existing values of the same names (for example an `AWS_REGION` you exported before running apop) are **not** restored — they are unset, since apop overwrote them when assuming a role.
 
 ```bash
 apop --unset

@@ -3,7 +3,7 @@
 # Source this file in your .zshrc or .bashrc:
 #   source /path/to/apop.sh
 
-APOP_VERSION="1.3.0"
+APOP_VERSION="2.0.0"
 APOP_CONFIG="${APOP_CONFIG:-$HOME/.config/apop/config}"
 
 apop() {
@@ -342,9 +342,8 @@ _apop_assume_role() {
   fi
 
   _apop_apply_credentials "$sts_json" "$role_arn"
+  _apop_clear_profile_context "$profile_name"
   if [[ -n "$profile_name" ]]; then
-    export AWS_PROFILE="$profile_name"
-    export AWS_DEFAULT_PROFILE="$profile_name"
     echo "Successfully assumed role for profile: $profile_name" >&2
   else
     echo "Successfully assumed role: ${role_arn##*/}" >&2
@@ -392,11 +391,42 @@ _apop_chain_role() {
   fi
 
   _apop_apply_credentials "$sts_json" "$role_arn"
+  # Chain-assume always lands on a new (target) role, so the previous
+  # APOP_PROFILE no longer describes the current session. Clear it along
+  # with AWS_PROFILE / AWS_DEFAULT_PROFILE, which may have been inherited
+  # from outside apop and would otherwise still influence profile-aware
+  # tools after the chain.
+  _apop_clear_profile_context ""
   echo "Successfully chain-assumed role: ${role_arn##*/}" >&2
   _apop_finalize
 }
 
 # --- Helpers ---
+
+# Clear shell state that profile-aware tools (notably the Terraform AWS
+# provider and the AWS S3 backend) read as a profile-selection hint, and
+# set APOP_PROFILE for display use only. Always called immediately after
+# we have just exported fresh STS credentials via _apop_apply_credentials.
+#
+# Why drop AWS_PROFILE / AWS_DEFAULT_PROFILE: AWS SDK Go v2's documented
+# credential chain prefers environment-variable credentials, so in theory
+# the env credentials we just set should win. In practice, Terraform's AWS
+# provider and a few other tools treat AWS_PROFILE as a profile-selection
+# hint and resolve the matching profile's role_arn / source_profile from
+# ~/.aws/config — which fails when the source profile has no credentials
+# of its own (e.g. "failed to load assume role ..., of profile default,
+# <nil>"). Unsetting these here gives every downstream tool exactly one
+# credential context: the env vars we just exported.
+_apop_clear_profile_context() {
+  local profile_name="${1:-}"
+  unset AWS_PROFILE
+  unset AWS_DEFAULT_PROFILE
+  if [[ -n "$profile_name" ]]; then
+    export APOP_PROFILE="$profile_name"
+  else
+    unset APOP_PROFILE
+  fi
+}
 
 _apop_check_deps() {
   local cmd; for cmd in "$@"; do
@@ -445,6 +475,9 @@ _apop_unset_session() {
   # `unset` of an already-unset variable is a no-op, so this is idempotent.
   # Note: pre-existing values of the same names (e.g. AWS_REGION the user
   # set before invoking apop) are not restored — they are unset.
+  # AWS_PROFILE / AWS_DEFAULT_PROFILE are unset for symmetry with
+  # _apop_clear_profile_context — see its comment for why apop keeps
+  # these out of the environment.
   unset AWS_ACCESS_KEY_ID
   unset AWS_SECRET_ACCESS_KEY
   unset AWS_SESSION_TOKEN
@@ -452,6 +485,7 @@ _apop_unset_session() {
   unset AWS_ASSUMED_ROLE_ARN
   unset AWS_PROFILE
   unset AWS_DEFAULT_PROFILE
+  unset APOP_PROFILE
   unset _APOP_LAST_TOTP_WINDOW
   echo "apop session credentials cleared" >&2
 }
@@ -586,7 +620,7 @@ _apop_get_profile_values() {
 
 _apop_select_profile() {
   local profiles="$1"
-  local current="${AWS_PROFILE:-${AWS_DEFAULT_PROFILE:-default}}"
+  local current="${APOP_PROFILE:-${AWS_PROFILE:-${AWS_DEFAULT_PROFILE:-default}}}"
 
   if command -v fzf &>/dev/null; then
     echo "$profiles" | fzf --cycle --height 40% --reverse --header "Current: $current | Select AWS Profile"
