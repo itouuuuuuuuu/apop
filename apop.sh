@@ -83,8 +83,10 @@ apop() {
   # Early-exit paths that operate on the current session only and do not need
   # the 1Password-backed config file.
 
-  # Browser shortcut: if already assumed and no profile specified, open console directly
-  if [[ "${_apop_open_browser:-false}" == "true" && $# -eq 0 && -n "${AWS_SESSION_TOKEN:-}" ]]; then
+  # Browser shortcut: if already assumed and no profile specified, open console directly.
+  # Skipped when --role-chain is given so the chain runs first and _apop_finalize
+  # opens the console for the new role.
+  if [[ "${_apop_open_browser:-false}" == "true" && $# -eq 0 && -z "${_apop_role_chain_arn:-}" && -n "${AWS_SESSION_TOKEN:-}" ]]; then
     _apop_open_console
     return
   fi
@@ -110,8 +112,8 @@ apop() {
   source "$APOP_CONFIG"
 
   # Trim whitespace from config values
-  APOP_OP_ITEM_NAME="${APOP_OP_ITEM_NAME## }"; APOP_OP_ITEM_NAME="${APOP_OP_ITEM_NAME%% }"
-  APOP_AWS_REGION="${APOP_AWS_REGION## }"; APOP_AWS_REGION="${APOP_AWS_REGION%% }"
+  APOP_OP_ITEM_NAME=$(_apop_trim "${APOP_OP_ITEM_NAME:-}")
+  APOP_AWS_REGION=$(_apop_trim "${APOP_AWS_REGION:-}")
 
   # Validate config
   if [[ -z "${APOP_OP_ITEM_NAME:-}" ]]; then
@@ -227,7 +229,10 @@ _apop_assume_profile() {
   local profile_name="$1"
 
   local aws_config="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
-  local role_arn mfa_serial_from_config
+  # Both variables must be local: eval assigns them, and since this script is
+  # sourced into the interactive shell, a non-local mfa_serial would persist
+  # across invocations and leak into profiles that have no mfa_serial.
+  local role_arn="" mfa_serial=""
   eval "$(_apop_get_profile_values "$aws_config" "$profile_name" role_arn mfa_serial)"
 
   if [[ -z "$role_arn" ]]; then
@@ -402,6 +407,14 @@ _apop_chain_role() {
 }
 
 # --- Helpers ---
+
+# Strip all leading and trailing whitespace (portable across bash and zsh).
+_apop_trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
 
 # Clear shell state that profile-aware tools (notably the Terraform AWS
 # provider and the AWS S3 backend) read as a profile-selection hint, and
@@ -639,7 +652,10 @@ _apop_select_profile() {
     done <<< "$profiles"
 
     echo >&2
-    read -rp "Enter number: " idx
+    local idx
+    # `read -p` means "read from coprocess" in zsh, so print the prompt explicitly.
+    printf 'Enter number: ' >&2
+    IFS= read -r idx
     if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx >= 1 && idx <= i - 1 )); then
       echo "$profiles" | sed -n "${idx}p"
     else
